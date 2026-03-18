@@ -154,6 +154,38 @@ def analyze(image_urls: list[str], api_key: str) -> dict:
     return parse_gemini_response(raw_text)
 
 
+def analyze_bytes(image_bytes_list: list[bytes], api_key: str) -> dict:
+    """
+    이미지 바이트 목록을 Gemini 1.5 Flash에 전달하여 분석 결과를 반환한다.
+    (파일 업로드 모드에서 사용)
+    """
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+
+    image_parts = [
+        {"mime_type": "image/jpeg", "data": b}
+        for b in image_bytes_list
+        if b
+    ]
+
+    if not image_parts:
+        return {
+            "scores": {k: 0 for k in SCORE_KEYS},
+            "total": 0,
+            "improvements": ["이미지를 불러오지 못했습니다."],
+            "error": "no_images",
+        }
+
+    contents = [ANALYSIS_PROMPT] + [
+        {"mime_type": part["mime_type"], "data": part["data"]}
+        for part in image_parts
+    ]
+
+    response = model.generate_content(contents)
+    raw_text = response.text.strip()
+    return parse_gemini_response(raw_text)
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(json.dumps({"error": "Usage: analyze_images.py <url1> [url2 ...]"}))

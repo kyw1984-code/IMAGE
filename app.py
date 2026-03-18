@@ -12,8 +12,7 @@ app.py
 
 import streamlit as st
 import pandas as pd
-from execution.scrape_coupang import scrape
-from execution.analyze_images import analyze
+from execution.analyze_images import analyze, analyze_bytes
 
 # ─────────────────────────────────────────────
 # 페이지 설정
@@ -40,108 +39,33 @@ def get_api_key() -> str | None:
 
 
 # ─────────────────────────────────────────────
-# 헤더
+# 분석 결과 표시 함수
 # ─────────────────────────────────────────────
-st.title("🛒 쿠팡 상세페이지 분석기")
-st.caption("상품 URL을 입력하면 AI가 상세페이지를 분석하고 점수와 개선안을 제공합니다.")
-st.divider()
-
-# ─────────────────────────────────────────────
-# 입력 영역
-# ─────────────────────────────────────────────
-url_input = st.text_input(
-    "쿠팡 상품 URL",
-    placeholder="https://www.coupang.com/vp/products/...",
-    help="쿠팡 상품 페이지 URL을 붙여넣으세요.",
-)
-
-analyze_btn = st.button("분석 시작", type="primary", use_container_width=True)
-
-# ─────────────────────────────────────────────
-# 분석 실행
-# ─────────────────────────────────────────────
-if analyze_btn:
-    if not url_input.strip():
-        st.warning("URL을 입력해주세요.")
-        st.stop()
-
-    if "coupang.com" not in url_input:
-        st.error("쿠팡 URL만 지원합니다. (coupang.com 도메인)")
-        st.stop()
-
-    api_key = get_api_key()
-    if not api_key:
-        st.error(
-            "GEMINI_API_KEY가 설정되지 않았습니다.\n\n"
-            "`.streamlit/secrets.toml` 에 `GEMINI_API_KEY = 'your-key'` 를 추가해주세요."
-        )
-        st.stop()
-
-    # 1) 이미지 크롤링
-    with st.spinner("🔍 쿠팡 페이지에서 이미지를 추출하는 중..."):
-        try:
-            scrape_result = scrape(url_input.strip())
-        except Exception as e:
-            st.error(f"이미지 추출 실패: {e}")
-            st.stop()
-
-    all_images = scrape_result.get("all_images", [])
-    thumbnail = scrape_result.get("thumbnail")
-
-    if not all_images:
-        debug_info = scrape_result.get("debug", "")
-        st.error("이미지를 찾을 수 없습니다. URL을 확인하거나 잠시 후 다시 시도해주세요.")
-        if debug_info:
-            with st.expander("🔍 디버그 정보 (문제 신고용)"):
-                st.code(debug_info)
-        st.stop()
-
-    st.success(f"이미지 {len(all_images)}장 추출 완료")
-
-    # 2) Gemini 분석
-    with st.spinner("🤖 AI가 상세페이지를 분석하는 중... (30초~1분 소요)"):
-        try:
-            analysis = analyze(all_images, api_key)
-        except Exception as e:
-            st.error(f"Gemini 분석 실패: {e}")
-            st.stop()
-
-    # ─────────────────────────────────────────────
-    # 결과 레이아웃: 좌측 이미지 | 우측 분석 결과
-    # ─────────────────────────────────────────────
+def show_results(analysis: dict, images_for_display: list):
     st.divider()
     col_img, col_result = st.columns([1, 1], gap="large")
 
     # ── 좌측: 이미지 갤러리 ──────────────────────
     with col_img:
         st.subheader("📸 분석된 이미지")
-
-        if thumbnail:
-            st.image(thumbnail, caption="메인 썸네일", use_container_width=True)
-
-        detail_imgs = scrape_result.get("detail_images", [])
-        if detail_imgs:
-            st.markdown("**상세 이미지**")
-            for i, img_url in enumerate(detail_imgs, 1):
-                try:
-                    st.image(img_url, caption=f"상세 이미지 {i}", use_container_width=True)
-                except Exception:
-                    st.caption(f"이미지 {i} 로드 실패")
+        for i, img in enumerate(images_for_display, 1):
+            try:
+                st.image(img, caption=f"이미지 {i}", use_container_width=True)
+            except Exception:
+                st.caption(f"이미지 {i} 로드 실패")
 
     # ── 우측: 분석 결과 ──────────────────────────
     with col_result:
         st.subheader("📊 분석 결과")
 
-        # 오류 처리
         if analysis.get("error") == "no_images":
             st.error("분석할 이미지가 없습니다.")
-            st.stop()
+            return
 
         scores = analysis.get("scores", {})
         total = analysis.get("total", sum(scores.get(k, 0) for k in SCORE_KEYS))
         improvements = analysis.get("improvements", [])
 
-        # 총점 강조 표시
         score_color = (
             "#2ecc71" if total >= 80
             else "#f39c12" if total >= 60
@@ -183,7 +107,6 @@ if analyze_btn:
             unsafe_allow_html=True,
         )
 
-        # 항목별 점수 막대그래프
         st.markdown("**항목별 점수**")
         chart_data = pd.DataFrame(
             {"점수": [scores.get(k, 0) for k in SCORE_KEYS]},
@@ -191,7 +114,6 @@ if analyze_btn:
         )
         st.bar_chart(chart_data, height=250, use_container_width=True)
 
-        # 항목별 상세 점수 (수치 표)
         with st.expander("점수 상세 보기"):
             for key in SCORE_KEYS:
                 score_val = scores.get(key, 0)
@@ -204,7 +126,6 @@ if analyze_btn:
 
         st.divider()
 
-        # 개선안
         st.markdown("**💡 개선안**")
         if analysis.get("parse_error"):
             st.warning("응답 파싱에 실패했습니다. 원문을 표시합니다.")
@@ -213,3 +134,113 @@ if analyze_btn:
         else:
             for item in improvements:
                 st.markdown(f"- {item}")
+
+
+# ─────────────────────────────────────────────
+# 헤더
+# ─────────────────────────────────────────────
+st.title("🛒 쿠팡 상세페이지 분석기")
+st.caption("상세페이지 이미지를 AI가 분석하여 점수와 개선안을 제공합니다.")
+st.divider()
+
+api_key = get_api_key()
+if not api_key:
+    st.error(
+        "GEMINI_API_KEY가 설정되지 않았습니다.\n\n"
+        "`.streamlit/secrets.toml` 에 `GEMINI_API_KEY = 'your-key'` 를 추가해주세요."
+    )
+    st.stop()
+
+# ─────────────────────────────────────────────
+# 탭: URL 입력 / 이미지 직접 업로드
+# ─────────────────────────────────────────────
+tab_url, tab_upload = st.tabs(["🔗 쿠팡 URL로 분석", "📁 이미지 직접 업로드"])
+
+# ── 탭 1: URL 입력 ──────────────────────────
+with tab_url:
+    st.info("쿠팡 상품 URL을 입력하면 자동으로 이미지를 추출하여 분석합니다. (로컬 실행 환경 권장)")
+
+    url_input = st.text_input(
+        "쿠팡 상품 URL",
+        placeholder="https://www.coupang.com/vp/products/...",
+        help="쿠팡 상품 페이지 URL을 붙여넣으세요.",
+        key="url_input",
+    )
+
+    if st.button("URL로 분석 시작", type="primary", use_container_width=True, key="btn_url"):
+        if not url_input.strip():
+            st.warning("URL을 입력해주세요.")
+        elif "coupang.com" not in url_input:
+            st.error("쿠팡 URL만 지원합니다. (coupang.com 도메인)")
+        else:
+            from execution.scrape_coupang import scrape
+
+            with st.spinner("🔍 쿠팡 페이지에서 이미지를 추출하는 중..."):
+                try:
+                    scrape_result = scrape(url_input.strip())
+                except Exception as e:
+                    st.error(f"이미지 추출 실패: {e}")
+                    st.stop()
+
+            all_images = scrape_result.get("all_images", [])
+            thumbnail = scrape_result.get("thumbnail")
+
+            if not all_images:
+                debug_info = scrape_result.get("debug", "")
+                st.error("이미지를 찾을 수 없습니다. 아래 '이미지 직접 업로드' 탭을 이용해주세요.")
+                if debug_info:
+                    with st.expander("🔍 디버그 정보"):
+                        st.code(debug_info)
+                st.stop()
+
+            st.success(f"이미지 {len(all_images)}장 추출 완료")
+
+            with st.spinner("🤖 AI가 상세페이지를 분석하는 중... (30초~1분 소요)"):
+                try:
+                    analysis = analyze(all_images, api_key)
+                except Exception as e:
+                    st.error(f"Gemini 분석 실패: {e}")
+                    st.stop()
+
+            display_imgs = (
+                [thumbnail] if thumbnail else []
+            ) + scrape_result.get("detail_images", [])
+
+            show_results(analysis, display_imgs)
+
+# ── 탭 2: 이미지 직접 업로드 ─────────────────
+with tab_upload:
+    st.info(
+        "상세페이지 이미지를 직접 업로드하여 분석합니다. "
+        "쿠팡 상품 페이지에서 이미지를 저장한 후 여기에 올려주세요. (최대 10장)"
+    )
+
+    uploaded_files = st.file_uploader(
+        "이미지 파일 선택 (JPG, PNG, WEBP)",
+        type=["jpg", "jpeg", "png", "webp"],
+        accept_multiple_files=True,
+        key="file_uploader",
+    )
+
+    if st.button("업로드 이미지 분석 시작", type="primary", use_container_width=True, key="btn_upload"):
+        if not uploaded_files:
+            st.warning("분석할 이미지를 업로드해주세요.")
+        else:
+            files = uploaded_files[:10]
+            st.success(f"이미지 {len(files)}장 업로드 완료")
+
+            with st.spinner("🤖 AI가 상세페이지를 분석하는 중... (30초~1분 소요)"):
+                try:
+                    image_bytes_list = [f.read() for f in files]
+                    analysis = analyze_bytes(image_bytes_list, api_key)
+                except Exception as e:
+                    st.error(f"Gemini 분석 실패: {e}")
+                    st.stop()
+
+            # 표시용 이미지: 업로드된 파일을 다시 읽음
+            display_imgs = []
+            for f in files:
+                f.seek(0)
+                display_imgs.append(f)
+
+            show_results(analysis, display_imgs)

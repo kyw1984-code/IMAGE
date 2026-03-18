@@ -89,7 +89,11 @@ if analyze_btn:
     thumbnail = scrape_result.get("thumbnail")
 
     if not all_images:
+        debug_info = scrape_result.get("debug", "")
         st.error("이미지를 찾을 수 없습니다. URL을 확인하거나 잠시 후 다시 시도해주세요.")
+        if debug_info:
+            with st.expander("🔍 디버그 정보 (문제 신고용)"):
+                st.code(debug_info)
         st.stop()
 
     st.success(f"이미지 {len(all_images)}장 추출 완료")

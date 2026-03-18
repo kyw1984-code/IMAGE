@@ -58,10 +58,24 @@ def _make_driver_cloud():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-setuid-sandbox")
+    options.add_argument("--ignore-certificate-errors")
     options.add_argument("--lang=ko-KR")
     options.add_argument("--window-size=1280,900")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_argument("--start-maximized")
+    options.add_argument(
+        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
     options.add_experimental_option("useAutomationExtension", False)
+    options.add_experimental_option("prefs", {
+        "intl.accept_languages": "ko-KR,ko",
+    })
 
     # Streamlit Cloud chromedriver 경로 (Debian Trixie: /usr/bin/chromedriver)
     for driver_path in ["/usr/bin/chromedriver", "/usr/bin/chromium-driver",
@@ -97,13 +111,23 @@ def _make_driver():
 
 
 def scrape(url: str) -> dict:
+    debug_lines = []
     driver, display = _make_driver()
     try:
         driver.get(url)
         time.sleep(5)
 
+        page_title = driver.title
+        debug_lines.append(f"page_title: {page_title}")
+        debug_lines.append(f"url: {driver.current_url}")
+
+        # Access Denied 탐지
+        if "Access Denied" in page_title or "denied" in page_title.lower():
+            raise RuntimeError(f"쿠팡이 접근을 차단했습니다. (title: {page_title})")
+
         # 절반까지 스크롤 → "상품정보 더보기" 버튼 노출
         height = driver.execute_script("return document.body.scrollHeight")
+        debug_lines.append(f"page_height: {height}")
         for pos in range(0, height // 2, 600):
             driver.execute_script(f"window.scrollTo(0, {pos})")
             time.sleep(0.3)
@@ -191,10 +215,16 @@ def scrape(url: str) -> dict:
         if img and img not in all_images:
             all_images.append(img)
 
+    debug_lines.append(f"thumbnail: {thumbnail}")
+    debug_lines.append(f"slider_imgs: {len(slider_imgs)}")
+    debug_lines.append(f"detail_imgs: {len(detail_imgs)}")
+    debug_lines.append(f"all_images: {len(all_images)}")
+
     return {
         "thumbnail": thumbnail,
         "detail_images": detail_imgs[:MAX_IMAGES],
         "all_images": all_images[:MAX_IMAGES],
+        "debug": "\n".join(debug_lines),
     }
 
 

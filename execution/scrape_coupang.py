@@ -48,9 +48,9 @@ def _make_driver_cloud():
     display.start()
 
     options = Options()
-    # Streamlit Cloud chromium 경로
-    for binary in ["/usr/bin/chromium-browser", "/usr/bin/chromium", "/usr/bin/google-chrome"]:
-        import os
+    # Streamlit Cloud chromium 경로 (Debian Trixie: /usr/bin/chromium)
+    import os
+    for binary in ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"]:
         if os.path.exists(binary):
             options.binary_location = binary
             break
@@ -63,8 +63,9 @@ def _make_driver_cloud():
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
 
-    for driver_path in ["/usr/bin/chromedriver", "/usr/lib/chromium-browser/chromedriver"]:
-        import os
+    # Streamlit Cloud chromedriver 경로 (Debian Trixie: /usr/bin/chromedriver)
+    for driver_path in ["/usr/bin/chromedriver", "/usr/bin/chromium-driver",
+                        "/usr/lib/chromium/chromedriver"]:
         if os.path.exists(driver_path):
             service = Service(driver_path)
             break

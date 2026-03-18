@@ -77,12 +77,22 @@ def _scrape_cloud(url: str) -> dict:
     """
     curl_cffi로 Chrome TLS/HTTP2 핑거프린트를 위장하여 페이지를 가져온다.
     브라우저 없이 동작 → Streamlit Cloud에서 사용.
+    메인 페이지 먼저 방문 → 쿠키 획득 → 상품 페이지 접근.
     """
     from curl_cffi import requests as curl_requests
 
     debug_lines = []
     session = curl_requests.Session(impersonate="chrome124")
-    resp = session.get(url, headers=_HEADERS, timeout=30)
+
+    # 메인 페이지 먼저 방문하여 쿠키/세션 획득
+    try:
+        warm_resp = session.get("https://www.coupang.com/", headers=_HEADERS, timeout=20)
+        debug_lines.append(f"warm_status: {warm_resp.status_code}")
+        time.sleep(1.5)
+    except Exception as e:
+        debug_lines.append(f"warm_failed: {e}")
+
+    resp = session.get(url, headers={**_HEADERS, "Referer": "https://www.coupang.com/"}, timeout=30)
     debug_lines.append(f"status_code: {resp.status_code}")
 
     if resp.status_code != 200:

@@ -27,7 +27,8 @@ import json
 import os
 import re
 import requests
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -118,18 +119,16 @@ def analyze(image_urls: list[str], api_key: str) -> dict:
     Returns:
         파싱된 분석 결과 딕셔너리
     """
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    client = genai.Client(api_key=api_key)
 
     # 이미지 다운로드 (실패한 이미지는 스킵)
     image_parts = []
     for url in image_urls:
         img_bytes = download_image_bytes(url)
         if img_bytes:
-            image_parts.append({
-                "mime_type": "image/jpeg",
-                "data": img_bytes,
-            })
+            image_parts.append(
+                types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
+            )
 
     if not image_parts:
         return {
@@ -139,13 +138,13 @@ def analyze(image_urls: list[str], api_key: str) -> dict:
             "error": "no_images",
         }
 
-    # Gemini 요청 구성: [프롬프트] + [이미지들]
-    contents = [ANALYSIS_PROMPT] + [
-        {"mime_type": part["mime_type"], "data": part["data"]}
-        for part in image_parts
-    ]
+    # Gemini 요청 구성: 이미지들 + 프롬프트
+    contents = image_parts + [types.Part.from_text(text=ANALYSIS_PROMPT)]
 
-    response = model.generate_content(contents)
+    response = client.models.generate_content(
+        model="gemini-1.5-flash",
+        contents=contents,
+    )
     raw_text = response.text.strip()
 
     return parse_gemini_response(raw_text)
